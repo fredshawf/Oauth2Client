@@ -1,0 +1,95 @@
+package net.fredshaw.xxx;
+
+import java.io.PrintWriter;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.util.Collections;
+import java.util.List;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
+import org.aspectj.lang.ProceedingJoinPoint;
+import org.aspectj.lang.annotation.Around;
+import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.annotation.Pointcut;
+import org.springframework.stereotype.Component;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONObject;
+
+
+@Aspect
+@Component
+public class LoginChecker {
+	private String client_id = "7a051b63601ed91a06b7a708795ec630";
+	private String redirect_uri = "http://127.0.0.1:10011/oauth/session/login";
+	private String req_url = "http://127.0.0.1:3000/oauth2/authorize?response_type=code" +
+    		"&client_id=" + client_id + "&redirect_uri=" + redirect_uri;
+	
+	
+	@Pointcut("execution(public * net.fredshaw.xxx.controller..*.*(..))")
+    public void check() {
+    }
+	
+	
+	@Around("check()")
+	public Object doAround(ProceedingJoinPoint pjp) throws Throwable {
+		// 接收到请求，记录请求内容
+        ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+        HttpServletRequest request = attributes.getRequest();
+        HttpServletResponse response = attributes.getResponse();
+        HttpSession session = request.getSession();
+        		
+        String path = request.getServletPath();
+        // 已登录再次登录时，重定向到根目录
+        if (session.getAttribute("_auth_user_id") != null && path.equals("/oauth/session/login")) {
+    		response.sendRedirect("/");
+    		return null;
+        }
+        
+        // 未登录时处理
+        if (session.getAttribute("_auth_user_id") == null && !path.equals("/oauth/session/login")) {
+        	session.setAttribute("stored_location", path);
+        	response.sendRedirect(req_url);
+        	return null;
+        }
+        
+        if (session.getAttribute("_auth_user_id") != null && !is_accessible(request, session)) {
+        	response.setCharacterEncoding("UTF-8");  
+            response.setContentType("text/html; charset=utf-8");  
+            PrintWriter out = response.getWriter();
+            out.append("您没有权限");
+        	return null;
+        }
+        return pjp.proceed();
+	}
+	
+	private boolean is_accessible(HttpServletRequest req, HttpSession session) {		
+		String req_path = req.getServletPath();
+		List<String> req_param_keys = Collections.list(req.getParameterNames());
+		
+		JSONObject json = JSON.parseObject(session.getAttribute("_auth_user_id").toString());
+		List<String> urls = json.getJSONArray("authorities").toJavaList(String.class);
+		
+		for (String u : urls) {
+			try {
+				URL url = new URL(u);
+				String path = url.getPath();
+				String query = url.getQuery();
+						
+				if (req_path.equals(path)) {
+					for(String param_key : req_param_keys ) {
+						String param_segment = param_key + "=" + req.getParameter(param_key);
+						if (!query.matches(param_segment+"&|$"))
+							continue;
+					}
+					return true;
+				}
+			} catch (MalformedURLException e) {
+				continue;
+			}
+		}
+		return false;
+	}
+}

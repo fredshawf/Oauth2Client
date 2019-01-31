@@ -1,0 +1,83 @@
+package net.fredshaw.xxx.controller;
+
+import java.io.IOException;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
+
+import org.springframework.util.StringUtils;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONObject;
+
+import okhttp3.FormBody;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+
+@RestController
+@RequestMapping("/oauth/session")
+public class AuthSessionController {
+	
+	private String client_id = "7a051b63601ed91a06b7a708795ec630";
+	private String client_secret = "SdlaPrUkO4uaF2A2FJNOgA==";
+	private String redirect_uri = "http://127.0.0.1:10011/oauth/session/login";
+	private String get_token_uri = "http://127.0.0.1:3000/oauth2/token";
+	
+	
+	@RequestMapping(value = "login", method = RequestMethod.GET)
+	public void doLogin(HttpServletRequest req, HttpServletResponse res) throws IOException {
+		
+		HttpSession session = req.getSession();
+		String code = req.getParameter("code");
+		
+		if (StringUtils.isEmpty(code)) {
+			res.sendRedirect("/");
+			return;
+		}
+		
+		JSONObject token = this.getToken(code);
+		if (!StringUtils.isEmpty(token.getString("access_token"))) {
+			session.setAttribute("_auth_user_id", token.toJSONString());
+			
+			String stored_location = (String) session.getAttribute("stored_location");
+			session.removeAttribute("stored_location");
+			if (stored_location != null)
+				res.sendRedirect(stored_location);
+		}	
+	}
+	
+	
+	private JSONObject getToken(String code) throws IOException {
+		OkHttpClient client = new OkHttpClient.Builder().build();
+		FormBody formBody = new FormBody
+                .Builder()
+                .add("client_id", client_id)
+                .add("client_secret", client_secret)
+                .add("grant_type", "authorization_code")
+                .add("code", code)
+                .add("redirect_uri", redirect_uri)
+                .build();
+		Request request = new Request.Builder()
+				.post(formBody)
+				.url(get_token_uri)
+				.build();
+		Response response = client.newCall(request).execute();
+		JSONObject authInfo = JSON.parseObject(response.body().string());
+		return authInfo;
+	}
+	
+	
+	@RequestMapping(value = "logout", method = RequestMethod.GET)
+	public void doLogout(HttpServletRequest req, HttpServletResponse res) throws IOException {
+		HttpSession session = req.getSession();
+		session.removeAttribute("_auth_user_id");
+		res.sendRedirect("/");
+	}
+	
+
+}
